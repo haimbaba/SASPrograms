@@ -1,0 +1,122 @@
+/***********************************************************************/
+/*                                                                  */
+/*    NAME: SAS DATASET PARSING CODE                                */
+/*   TITLE: Parses a SAS datasets into individual text files to        */
+/*          be used for training and testing puroposes inside          */
+/*          SAS Sentiment Analysis                                */
+/* PRODUCT: SAS, Enterprise Guide                           */
+/*  SYSTEM: TESTED IN WINDOWS OS                                    */
+/*   PROCS: SQL PRINTTO IMPORT "DATA STEPS"                         */
+/*    DATA: Input data is any SAS dataset or dataset mapped via an        */
+/*          Access Engine. Libname needs to be assigned prior to          */
+/*          executing the macro                           */
+/*                                                                  */
+/*  UPDATE: 07/25/2013                                    */
+/*     REF:                                                         */
+/*    MISC:                                                         */
+/*    DESC: Provides an automated mecanism to parse a SAS dataset      */
+/*          into individual text files to be used as training and      */
+/*          testing files for SAS SAS SentimentAnalysis and SAS        */
+/*          Content Categorization                                     */
+/*                                                                  */
+/* CREATOR: Vinicius Vivaldi                              */
+/* CONTRIBUTORS: Dan Zaratsian, Justin Plumley                 */
+/*                                             */
+/***********************************************************************/
+*options macrogen mprint mlogic source2;
+
+%macro Parse_Data(input_data=DATA.TELCOM_CRM, dir_loc=C:\SasWorkFiles\Telecom\workspace, text_field=conversation, MaxNum=400000, /* You need to add the ID for the text string in the SAS DB */ID=Query_ID);
+
+/****************************/
+/*     CODE STARTS HERE     */
+/****************************/
+%put ID=&ID;
+
+%if &ID= %then %do; 
+
+     /* Creates an intermediate table with original ID variable and new unique ID variable */
+     data work.intermediate_table_PD_ZQJ(compress=yes keep=&TEXT_field ID_INTERNAL_ZQJ);
+           set &input_data;
+           ID_INTERNAL_ZQJ+1;
+     run;
+     %end;
+
+
+%else %do;
+     /* Creates an intermediate table with new unique ID variable */
+     data work.intermediate_table_PD_ZQJ(compress=yes keep=&TEXT_field ID_INTERNAL_ZQJ);
+           set &input_data;
+           RENAME &ID=ID_INTERNAL_ZQJ; /* Renaming original ID variable */
+     run;
+     %end;
+
+%if &maxnum= %then %do; 
+  /* 
+    Automatically detects the amount of records to convert to text files based on total counts of available records.
+  */
+     proc sql noprint;
+       select count(&TEXT_field.) into: MaxNum
+       from work.intermediate_table_PD_ZQJ;
+       quit;
+     run;
+%end;
+
+%put maxnum=&maxnum;
+
+/* Send log to "heaven" */
+
+proc printto log="nul:";
+run;
+
+data _null_;
+/* Point to the actual SAS dataset that is being parsed parsing. */
+set work.intermediate_table_PD_ZQJ (keep=&TEXT_field ID_INTERNAL_ZQJ obs=&MaxNum);
+           i+1;
+
+/* Define location where text files will be saved */
+        Thisfile=cats("&DIR_LOC","\",ID_INTERNAL_ZQJ,".txt");
+        file textfile filevar=ThisFile lrecl=2048 encoding="utf-8";
+         put &TEXT_field;
+run;
+
+/* Sets log back to default */
+proc printto; 
+run;
+
+/*
+Deleting intermediate_table_PD_ZQJ
+*/
+proc datasets library=work noprint;
+delete intermediate_table_PD_ZQJ;
+quit;
+
+
+/****************************/
+/*      CODE ENDS HERE      */
+/****************************/
+%mend;
+
+
+/******************************/
+/* ASSIGN LIBRARY - IF NEEDED */
+/******************************/
+/* Assign library mapping to a SAS dataset (or table mapped via an Access engine) */
+libname demodata 'C:\SasWorkFiles\Telecom\workspace';
+
+
+%Parse_Data( /* Data source to be scored */ 
+                 input_data = DATA.TELCOM_CRM, 
+
+                /* Location (directory) where you would like to create the individual text files */
+                dir_loc   = C:\SasWorkFiles\Telecom\workspace, 
+
+                /* TEXT variable (field) name to be parsed */
+                text_field = query, 
+
+                /* Amount of records to convert to text files. If this parameter is not specified the 
+                 macro calculates how many records are in the table and uses that as the parameter */
+                MaxNum    = ,        
+
+                /* Define ID variable. If this parameter is not specified the macro creates an internal 
+                 sequential ID */
+                ID        = Query_ID);   
